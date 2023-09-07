@@ -36,7 +36,7 @@ const createProduct = asyncHandler(async (req, res) => {
     };
   }
 
-  //Check if user email already exists
+  //Check if order Id already exists
     const productExists = await Product.findOne({amzorderid});
 
     if(productExists){
@@ -46,7 +46,6 @@ const createProduct = asyncHandler(async (req, res) => {
 
   // Create Product
   const product = await Product.create({
-    user: req.user.id,
     name,
     amzorderid,
     amzorderdate,
@@ -96,7 +95,7 @@ const createMultipleProducts = async (req, res) => {
         continue; //'Please fill in all fields for each product');
       }
 
-      //Check if user email already exists
+      //Check if order ID already exists
       const productExists = await Product.findOne({amzorderid});
 
       if(productExists){
@@ -110,7 +109,6 @@ const createMultipleProducts = async (req, res) => {
 
       // Create Product
       const newProduct = await Product.create({
-        user: req.user.id,
         name,
         amzorderid,
         amzorderdate,
@@ -136,7 +134,7 @@ const createMultipleProducts = async (req, res) => {
 
 // Get all Products
 const getProducts = asyncHandler(async (req, res) => {
-  const products = await Product.find({ user: req.user.id }).sort("-createdAt");
+  const products = await Product.find().sort("-createdAt");
   res.status(200).json(products);
 });
 
@@ -147,11 +145,6 @@ const getProduct = asyncHandler(async (req, res) => {
   if (!product) {
     res.status(404);
     throw new Error("Product not found");
-  }
-  // Match product to its user
-  if (product.user.toString() !== req.user.id) {
-    res.status(401);
-    throw new Error("User not authorized");
   }
   res.status(200).json(product);
 });
@@ -166,11 +159,6 @@ const deleteProduct = asyncHandler(async (req, res) => {
     if (!product) {
       res.status(404);
       throw new Error("Product not found");
-    }
-    // Match product to its user
-    if (product.user.toString() !== req.user.id) {
-      res.status(401);
-      throw new Error("User not authorized");
     }
     await Product.deleteOne({_id: productId});
     res.status(200).json({ message: "Product deleted." });
@@ -191,11 +179,6 @@ const updateProduct = asyncHandler(async (req, res) => {
   if (!product) {
     res.status(404);
     throw new Error("Product not found");
-  }
-  // Match product to its user
-  if (product.user.toString() !== req.user.id) {
-    res.status(401);
-    throw new Error("User not authorized");
   }
 
   // Handle Image upload

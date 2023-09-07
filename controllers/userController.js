@@ -13,12 +13,16 @@ const generateToken = (id) => {
 
 //Register User
 const registerUser = asyncHandler( async (req,res) => {
-    const { name, email, password } = req.body
+    const { name, email, password, invitationPwd } = req.body
 
     // Validations
-    if(!name || !email || !password){
+    if(!name || !email || !password || !invitationPwd){
         res.status(400);
         throw new Error(`Please fill in all required fileds ${name}, ${email}, ${password}`);
+    }
+    if(invitationPwd != process.env.INVITATION_PWD){
+        res.status(400);
+        throw new Error("Invitation id not valid");
     }
     if(password.Length < 6){
         res.status(400);
