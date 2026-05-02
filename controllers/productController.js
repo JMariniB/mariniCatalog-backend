@@ -2,6 +2,8 @@ const asyncHandler = require("express-async-handler");
 const Product = require("../models/productModel");
 const { fileSizeFormatter } = require("../utils/fileUpload");
 const cloudinary = require("cloudinary").v2;
+const axios = require("axios");
+const cheerio = require("cheerio");
 
 // Create Prouct
 const createProduct = asyncHandler(async (req, res) => {
@@ -55,7 +57,7 @@ const createProduct = asyncHandler(async (req, res) => {
     price,
     description,
     isPublished,
-    pendingPublish,    
+    pendingPublish,
     image: fileData,
   });
 
@@ -129,7 +131,7 @@ const createMultipleProducts = async (req, res) => {
     console.error('Error in createMultipleProducts:', error);
     res.status(500).json({ error: 'An error occurred' });
   }
-  
+
 };
 
 // Get all Products
@@ -226,12 +228,108 @@ const updateProduct = asyncHandler(async (req, res) => {
         runValidators: true,
       }
     );
-    
+
     res.status(200).json(updatedProduct);
   } catch (error) {
     res.status(400);
     throw new Error(error.message);
   }
+});
+
+// ── Shared Amazon scraping helpers ───────────────────────────────────────────
+const SCRAPE_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+  "Accept-Encoding": "gzip, deflate, br",
+  Connection: "keep-alive",
+  "Cache-Control": "max-age=0",
+};
+
+const parsePrice = (text) => {
+  if (!text) return null;
+  const cleaned = text.replace(/[€$£\s ]/g, "").replace(",", ".");
+  const price = parseFloat(cleaned);
+  return isNaN(price) ? null : price;
+};
+
+const fetchAmazonPrice = async (asin) => {
+  const url = `https://www.amazon.es/dp/${asin}`;
+  const { data } = await axios.get(url, { headers: SCRAPE_HEADERS, timeout: 12000 });
+  const $ = cheerio.load(data);
+
+  let price = null;
+
+  $(".a-price .a-offscreen").each((_, el) => {
+    if (price !== null) return;
+    price = parsePrice($(el).text());
+  });
+
+  if (price === null) {
+    for (const sel of [
+      "#priceblock_ourprice",
+      "#priceblock_dealprice",
+      "#price_inside_buybox",
+      ".a-price-whole",
+    ]) {
+      if (price !== null) break;
+      price = parsePrice($(sel).first().text());
+    }
+  }
+
+  return price;
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Update prices from Amazon.es by scraping (bulk)
+const updatePrices = asyncHandler(async (req, res) => {
+  const products = await Product.find({
+    location: { $nin: ["PEND", "SOLD", "", null] },
+    asin: { $exists: true, $ne: "" },
+    $or: [{ price: { $lte: 1 } }, { price: null }, { price: { $exists: false } }],
+  });
+
+  const results = { updated: 0, failed: 0, skipped: 0 };
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  for (const product of products) {
+    if (!product.asin) { results.skipped++; continue; }
+
+    try {
+      await delay(700);
+      const price = await fetchAmazonPrice(product.asin);
+      if (price !== null) {
+        await Product.findByIdAndUpdate(product._id, { price });
+        results.updated++;
+      } else {
+        console.log(`No price found for ASIN ${product.asin}`);
+        results.failed++;
+      }
+    } catch (error) {
+      console.error(`Error fetching ASIN ${product.asin}:`, error.message);
+      results.failed++;
+    }
+  }
+
+  res.status(200).json({ message: "Precios actualizados", total: products.length, ...results });
+});
+
+// Update price for a single product
+const updateSinglePrice = asyncHandler(async (req, res) => {
+  const product = await Product.findById(req.params.id);
+  if (!product) { res.status(404); throw new Error("Product not found"); }
+  if (!product.asin) { res.status(400); throw new Error("El producto no tiene ASIN"); }
+
+  const price = await fetchAmazonPrice(product.asin);
+  if (price === null) {
+    res.status(404);
+    throw new Error(`No se encontro precio para ASIN ${product.asin}`);
+  }
+
+  const updated = await Product.findByIdAndUpdate(req.params.id, { price }, { new: true });
+  res.status(200).json({ price: updated.price });
 });
 
 module.exports = {
@@ -240,5 +338,7 @@ module.exports = {
   getProduct,
   deleteProduct,
   updateProduct,
-  createMultipleProducts
+  createMultipleProducts,
+  updatePrices,
+  updateSinglePrice,
 };

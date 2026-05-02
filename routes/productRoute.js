@@ -8,11 +8,15 @@ const {
   deleteProduct,
   updateProduct,
   createMultipleProducts,
+  updatePrices,
+  updateSinglePrice,
 } = require("../controllers/productController");
 const { upload } = require("../utils/fileUpload");
 
 router.post("/", protect, upload.single("image"), createProduct);
 router.post("/bulk", protect, createMultipleProducts);
+router.post("/update-prices", protect, updatePrices);
+router.post("/:id/update-price", protect, updateSinglePrice);
 router.patch("/:id", protect, upload.single("image"), updateProduct);
 router.get("/", protect, getProducts);
 router.get("/:id", protect, getProduct);
